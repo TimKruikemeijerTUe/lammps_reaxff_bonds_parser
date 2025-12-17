@@ -4,8 +4,25 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 from polars.dataframe.frame import DataFrame
-from tools.utils import read_lines
 
+
+def _read_lines(path: Path | str) -> list[str]:
+    """Get the lines of text from a file
+
+    Parameters
+    ----------
+    path : Path | str
+        Path to the file
+
+    Returns
+    -------
+    list[str]
+        List with the lines
+    """
+    with open(path) as f:
+        text: str = f.read()
+
+    return str.splitlines(text)
 
 def _step_data_to_table(
     data_step: list[str], nr_part: int, max_b: int, id_heads, bo_heads, timestep
@@ -69,7 +86,7 @@ def _step_data_to_table(
 
 
 def _file_to_com_dat(path: Path | str) -> tuple[list[str], list[str]]:
-    lines: list[str] = read_lines(path)
+    lines: list[str] = _read_lines(path)
 
     comments: list[str] = [
         line.removeprefix("#").removesuffix("\n").strip()
@@ -229,3 +246,4 @@ def file_to_ReaxFF_bond_table(
         Path(file_path).unlink()
 
     return table
+
