@@ -1,42 +1,64 @@
 #!/usr/bin/env python3
+from importlib.util import find_spec
+from itertools import islice
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 from polars.dataframe.frame import DataFrame
+from polars.lazyframe.frame import LazyFrame
+
+tqdm_installed: bool = find_spec("tqdm") != None
+if tqdm_installed:
+    from tqdm import tqdm
 
 
-def _read_lines(path: Path | str) -> list[str]:
-    """Get the lines of text from a file
+def _step_data_to_table(
+    data_step: list[str],
+    nr_part: int,
+    max_b: int,
+    id_heads: list[str],
+    bo_heads: list[str],
+    timestep,
+) -> DataFrame:
+    """Create step table from the step data lines. Involves many hardcoded info
 
     Parameters
     ----------
-    path : Path | str
-        Path to the file
+    data_step : list[str]
+        The data lines
+    nr_part : int
+        Number of particles
+    max_b : int
+        Maximum number of neighbours
+    id_heads : list[str]
+        List of the columns names of the neighbouring IDs
+    bo_heads : list[str]
+        List of the columns names of the neighbouring BOs
+    timestep : int
+        The timestep of the this data
 
     Returns
     -------
-    list[str]
-        List with the lines
+    DataFrame
+        The step table
     """
-    with open(path) as f:
-        text: str = f.read()
 
-    return str.splitlines(text)
+    # Sentinel value to replace empty values later. Largest signed 32 bit int
+    sentinel = -2147483648
 
-def _step_data_to_table(
-    data_step: list[str], nr_part: int, max_b: int, id_heads, bo_heads, timestep
-) -> DataFrame:
-    ids = np.full(nr_part, np.nan, dtype=np.int32)
-    types = np.full(nr_part, np.nan, dtype=np.int32)
-    nbs = np.full(nr_part, np.nan, dtype=np.int32)
-    idns = np.full((nr_part, max_b), np.nan, dtype=np.int32)
-    mols = np.full(nr_part, np.nan, dtype=np.int32)
-    bos = np.full((nr_part, max_b), np.nan, dtype=np.float64)
-    abos = np.full(nr_part, np.nan, dtype=np.float64)
-    nlps = np.full(nr_part, np.nan, dtype=np.int32)
-    qs = np.full(nr_part, np.nan, dtype=np.float64)
+    # Initialize the arrays for easier access
+    ids = np.full(nr_part, sentinel, dtype=np.int32)
+    types = np.full(nr_part, sentinel, dtype=np.int32)
+    nbs = np.full(nr_part, sentinel, dtype=np.int32)
+    idns = np.full((nr_part, max_b), sentinel, dtype=np.int32)
+    mols = np.full(nr_part, sentinel, dtype=np.int32)
+    bos = np.full((nr_part, max_b), sentinel, dtype=np.float64)
+    abos = np.full(nr_part, sentinel, dtype=np.float64)
+    nlps = np.full(nr_part, sentinel, dtype=np.int32)
+    qs = np.full(nr_part, sentinel, dtype=np.float64)
 
+    # Iterate over the lines
     for i in range(nr_part):
         line: str = data_step[i]
         t: list[str] = line.split()
@@ -59,9 +81,11 @@ def _step_data_to_table(
         nlps[i] = int(float(t[5 + 2 * nb]))
         qs[i] = float(t[6 + 2 * nb])
 
+    # Dynamically create dicts
     idns_dict = {head: idns[:, l] for l, head in enumerate(id_heads)}
     bos_dict = {head: bos[:, l] for l, head in enumerate(bo_heads)}
-    step_table = pl.LazyFrame(
+    # Create frame from arrays
+    step_table = pl.DataFrame(
         {
             **{
                 "timestep": timestep,
@@ -82,21 +106,55 @@ def _step_data_to_table(
         }
     )
 
-    return step_table.collect()
+    return step_table
 
 
-def _file_to_com_dat(path: Path | str) -> tuple[list[str], list[str]]:
-    lines: list[str] = _read_lines(path)
+def _file_to_com(path: Path | str) -> list[str]:
+    """Get all (non-empty) lines with '#' prefix. Removes '#' or '\\n'
 
-    comments: list[str] = [
-        line.removeprefix("#").removesuffix("\n").strip()
-        for line in lines
-        if line.startswith("#")
-    ]
+    Parameters
+    ----------
+    path : Path | str
+        Path to the text file
+
+    Returns
+    -------
+    list[str]
+        List with comment lines
+    """
+
+    with open(path) as f:
+        comments: list[str] = [
+            line.removeprefix("#").removesuffix("\n").strip()
+            for line in f
+            if line.startswith("#")
+        ]
+
     comments = [com for com in comments if com != ""]
-    data: list[str] = [line for line in lines if not line.startswith("#")]
 
-    return comments, data
+    return comments
+
+
+def _file_to_data(path: Path | str) -> list[str]:
+    """Get all lines without '#' prefix. Removes '\\n'
+
+    Parameters
+    ----------
+    path : Path | str
+        Path to the text file
+
+    Returns
+    -------
+    list[str]
+        List with data lines
+    """
+
+    with open(path) as f:
+        data: list[str] = [
+            line.removesuffix("\n").strip() for line in f if not line.startswith("#")
+        ]
+
+    return data
 
 
 def _parse_comments(comments: list[str]) -> tuple[list[int], int, int, int]:
@@ -193,20 +251,103 @@ def _create_table(
         table = table.vstack(step_table)
 
     # Replace empty values with actual empties
-    table = pl.DataFrame(
-        [column.replace(-2147483648, None) for column in table]
-    ).fill_nan(None)
+    sentinel = -2147483648  # Largest signed 32 bit int
+    table = pl.DataFrame([column.replace(sentinel, None) for column in table]).fill_nan(
+        None
+    )
 
     return table
+
+
+def _create_table_seq(
+    file_path: Path | str,
+    timesteps: list[int],
+    nr_part: int,
+    max_b: int,
+    nr_steps: int,
+    sort: list[str],
+    save_path: Path | str,
+) -> LazyFrame:
+    """Create a table with the ReaxFF bond info. Contains lots of hardcoded stuff. Step by step for memory reasons.
+
+    Parameters
+    ----------
+    file_path : Path | str
+        Path to the ReaxFF bonds file
+    timesteps : list[int]
+        The timesteps of the file
+    nr_part : int
+        Particles per timestep
+    max_b : int
+        Max number of bonds
+    nr_steps : int
+        Number of timesteps
+    sort : list[str]
+        Headers by which to sort
+    save_path : Path | str
+        The path (including name and extension) to save the table to
+
+    Returns
+    -------
+    LazyFrame
+        Table with the bond info
+    """
+
+    id_heads: list[str] = [f"id_{id+1}" for id in range(max_b)]
+    bo_heads: list[str] = [f"bo_{id+1}" for id in range(max_b)]
+
+    sentinel = -2147483648  # Largest signed 32 bit int
+
+    first_table = True  # For header writing
+    open(save_path, mode="w", encoding="utf8").close()  # Empty file
+
+    # Sequential for memory
+    if tqdm_installed:
+        pbar = tqdm(total=nr_steps, desc="ReaxFF written: ")
+
+    stepper = iter(timesteps)
+    with (
+        open(file_path, "r") as text_file,
+        open(save_path, mode="a", encoding="utf8") as f,
+    ):
+        for line in text_file:
+            if not line.startswith("#"):
+                data = [line] + [l for l in islice(text_file, 0, nr_part - 1)]
+
+                table = _step_data_to_table(
+                    data, nr_part, max_b, id_heads, bo_heads, next(stepper)
+                )
+
+                table = table.sort(sort)
+                table = pl.DataFrame(
+                    [column.replace(sentinel, None) for column in table]
+                ).fill_nan(None)
+
+                if first_table:
+                    table.write_csv(f)
+                    first_table = False
+                else:
+                    table.write_csv(f, include_header=False)
+
+                if tqdm_installed:
+                    pbar.update()
+
+    if tqdm_installed:
+        pbar.close()
+
+    ids_schema = {f"id_{id+1}": pl.Int32 for id in range(max_b)}
+
+    return pl.scan_csv(save_path, schema_overrides=ids_schema)
 
 
 def file_to_ReaxFF_bond_table(
     file_path: Path | str,
     sort: str | list[str] = ["timestep", "id"],
+    large_file=False,
     save=False,
     save_path: Path | str = "",
     delete_file=False,
-) -> DataFrame:
+) -> LazyFrame:
     """Turns a LAMMPS ReaxFF bond file into a `polars` table and optionally save it as CSV file
 
     Because the standard output format of `fix 1 all reaxff/bonds ...` can contain rows of varying width,
@@ -219,8 +360,10 @@ def file_to_ReaxFF_bond_table(
         Path to the bond file
     sort : str | list[str], optional
         The parameters columns by which to sort the table at the end, by default ["timestep", "id"]
+    large_file : bool, optional
+        Whether to optimize space usage, by default False
     save : bool, optional
-        Whether to save the table, by default False
+        Whether to save the table. Needed for `large_file`, by default False
     save_path : Path | str, optional
         The path (including name and extension) to save the table to if `save` is True, by default ""
     delete_file : bool, optional
@@ -228,22 +371,39 @@ def file_to_ReaxFF_bond_table(
 
     Returns
     -------
-    DataFrame
+    LazyFrame
         A table containing all the bond information
     """
-    comments, data = _file_to_com_dat(file_path)
-    timesteps, nr_part, max_b, nr_steps = _parse_comments(comments)
-    table: DataFrame = _create_table(data, timesteps, nr_part, max_b, nr_steps)
 
     if isinstance(sort, str):
         sort = [sort]
 
-    table = table.sort(["timestep"] + sort)
+    comments = _file_to_com(file_path)
+    timesteps, nr_part, max_b, nr_steps = _parse_comments(comments)
 
-    if save:
-        table.write_csv(save_path)
+    if large_file:
+        if save == False:
+            print("ERROR: For large files saving is needed for useful behaviour")
+            quit()
+
+        del comments  # For space
+
+        table: LazyFrame = _create_table_seq(
+            file_path, timesteps, nr_part, max_b, nr_steps, sort, save_path
+        )
+
+    else:
+        data: list[str] = _file_to_data(file_path)
+
+        table_d: DataFrame = _create_table(data, timesteps, nr_part, max_b, nr_steps)
+        table_d = table_d.sort(sort)
+
+        if save:
+            table_d.write_csv(save_path)
+
+        table = table_d.lazy()
+
     if delete_file:
         Path(file_path).unlink()
 
     return table
-
