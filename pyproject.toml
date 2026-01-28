@@ -3,8 +3,8 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "LAMMPS_ReaxFF_bonds_parser"
-version = "1.0.2"
+name = "lammps_reaxff_bonds_parser"
+version = "1.0.3"
 description = "Turns a LAMMPS ReaxFF bond file into a `polars` table and optionally save it as CSV file"
 keywords = ["polars", "LAMMPS", "ReaxFF"]
 authors = [ { name="Tim" } ]
@@ -28,7 +28,7 @@ tqdm = [
 ]
 
 [project.urls]
-repository = "https://github.com/TimKruikemeijerTUe/LAMMPS_ReaxFF_bonds_parser"
+repository = "https://github.com/TimKruikemeijerTUe/lammps_reaxff_bonds_parser"
 
 [tool.setuptools.packages.find]
 where = ["src"]
