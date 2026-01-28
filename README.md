@@ -10,9 +10,9 @@ ReaxFF_bonds = file_to_ReaxFF_bond_table("bonds.txt", large_file=False, save=Tru
 
 ## Installation
 Local install using pip:
-`pip install git+https://github.com/TimKruikemeijerTUe/LAMMPS_ReaxFF_bonds_parser.git`
+```pip install git+https://github.com/TimKruikemeijerTUe/LAMMPS_ReaxFF_bonds_parser.git```
 or with `tqdm` 
-`pip install "lammps_reaxff_bonds_parser[tqdm] @  git+https://github.com/TimKruikemeijerTUe/LAMMPS_ReaxFF_bonds_parser.git"`
+```pip install "lammps_reaxff_bonds_parser[tqdm] @  git+https://github.com/TimKruikemeijerTUe/LAMMPS_ReaxFF_bonds_parser.git"```
 
 ## Dependencies
 This script relies on [numpy](https://numpy.org/) and [polars](https://pola.rs/). [tqdm](https://tqdm.github.io/) is optionally used for large file progress tracking.
