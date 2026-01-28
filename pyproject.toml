@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "LAMMPS_ReaxFF_bonds_parser"
+version = "1.0.1"
+description = "Turns a LAMMPS ReaxFF bond file into a `polars` table and optionally save it as CSV file"
+keywords = ["polars", "LAMMPS", "ReaxFF"]
+authors = [ { name="Tim" } ]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+readme = "README.md"
+requires-python = ">=3.12"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "polars >= 1.37.0",
+]
+
+
+[project.optional-dependencies]
+tqdm = [
+    "tqdm >= 4.67.0",
+]
+
+[project.urls]
+repository = "https://github.com/TimKruikemeijerTUe/LAMMPS_ReaxFF_bonds_parser"
+
+[tool.setuptools.packages.find]
+where = ["src"]
