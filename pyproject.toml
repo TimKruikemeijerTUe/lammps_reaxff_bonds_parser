@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "LAMMPS_ReaxFF_bonds_parser"
-version = "1.0.1"
+version = "1.0.2"
 description = "Turns a LAMMPS ReaxFF bond file into a `polars` table and optionally save it as CSV file"
 keywords = ["polars", "LAMMPS", "ReaxFF"]
 authors = [ { name="Tim" } ]
